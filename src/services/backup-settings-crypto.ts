@@ -15,7 +15,7 @@ import type { Env, User } from '../types';
 const RUNTIME_SALT = 'nodewarden.backup-settings.runtime.v2';
 const RUNTIME_INFO = 'runtime';
 const PORTABLE_ALGORITHM = 'RSA-OAEP';
-const PORTABLE_HASH = 'SHA-1';
+const PORTABLE_HASH = 'SHA-256';
 const AES_GCM_ALGORITHM = 'AES-GCM';
 const AES_GCM_IV_BYTES = 12;
 const PORTABLE_DEK_BYTES = 32;

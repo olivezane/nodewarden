@@ -3,14 +3,15 @@ import type { AdminBackupSettings, BackupSettingsPortablePayload } from './api/b
 import type { Profile, SessionState } from './types';
 
 const PORTABLE_ALGORITHM = 'RSA-OAEP';
-const PORTABLE_HASH = 'SHA-1';
+const PORTABLE_HASH = 'SHA-256';
+const PORTABLE_LEGACY_HASH = 'SHA-1';
 const AES_GCM_ALGORITHM = 'AES-GCM';
 
-async function importPortablePrivateKey(pkcs8: Uint8Array): Promise<CryptoKey> {
+async function importPortablePrivateKey(pkcs8: Uint8Array, hash: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'pkcs8',
     toBufferSource(pkcs8),
-    { name: PORTABLE_ALGORITHM, hash: PORTABLE_HASH },
+    { name: PORTABLE_ALGORITHM, hash },
     false,
     ['decrypt']
   );
@@ -18,6 +19,21 @@ async function importPortablePrivateKey(pkcs8: Uint8Array): Promise<CryptoKey> {
 
 async function importPortableAesKey(keyBytes: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', toBufferSource(keyBytes), { name: AES_GCM_ALGORITHM }, false, ['decrypt']);
+}
+
+async function unwrapPortableDek(privateKeyBytes: Uint8Array, wrappedKeyBase64: string): Promise<Uint8Array> {
+  const wrappedKey = toBufferSource(base64ToBytes(wrappedKeyBase64));
+  const hashes = [PORTABLE_HASH, PORTABLE_LEGACY_HASH];
+  let lastError: Error | null = null;
+  for (const hash of hashes) {
+    try {
+      const privateKey = await importPortablePrivateKey(privateKeyBytes, hash);
+      return new Uint8Array(await crypto.subtle.decrypt({ name: PORTABLE_ALGORITHM }, privateKey, wrappedKey));
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastError ?? new Error('Failed to unwrap portable DEK');
 }
 
 export async function decryptPortableBackupSettings(
@@ -45,14 +61,7 @@ export async function decryptPortableBackupSettings(
     base64ToBytes(session.symEncKey),
     base64ToBytes(session.symMacKey)
   );
-  const privateKey = await importPortablePrivateKey(privateKeyBytes);
-  const portableDek = new Uint8Array(
-    await crypto.subtle.decrypt(
-      { name: PORTABLE_ALGORITHM },
-      privateKey,
-      toBufferSource(base64ToBytes(wrap.wrappedKey))
-    )
-  );
+  const portableDek = await unwrapPortableDek(privateKeyBytes, wrap.wrappedKey);
   const aesKey = await importPortableAesKey(portableDek);
   const plaintext = new Uint8Array(
     await crypto.subtle.decrypt(
