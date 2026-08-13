@@ -1,4 +1,4 @@
-import { Env, Attachment, Cipher } from '../types';
+import type { Env, Attachment, Cipher } from '../types';
 import { notifyUserCipherUpdate, notifyUserVaultSync } from '../durable/notifications-hub';
 import { StorageService } from '../services/storage';
 import { jsonResponse, errorResponse } from '../utils/response';
@@ -11,7 +11,7 @@ import {
   verifyAttachmentUploadToken,
   verifyFileDownloadToken,
 } from '../utils/jwt';
-import { applyCipherEmbeddedAttachmentMetadata, cipherToResponse } from './ciphers';
+import { applyCipherEmbeddedAttachmentMetadata, cipherToResponse } from '../services/cipher-domain';
 import { LIMITS } from '../config/limits';
 import { readActingDeviceIdentifier } from '../utils/device';
 import {
@@ -370,16 +370,16 @@ export async function handleUpdateAttachmentMetadata(
     return errorResponse('Invalid JSON', 400);
   }
 
-  if (!Object.prototype.hasOwnProperty.call(body, 'fileName') && !Object.prototype.hasOwnProperty.call(body, 'key')) {
+  if (!Object.hasOwn(body, 'fileName') && !Object.hasOwn(body, 'key')) {
     return errorResponse('No metadata fields supplied', 400);
   }
 
-  if (Object.prototype.hasOwnProperty.call(body, 'fileName')) {
+  if (Object.hasOwn(body, 'fileName')) {
     const fileName = String(body.fileName || '').trim();
     if (!fileName) return errorResponse('fileName is required', 400);
     attachment.fileName = fileName;
   }
-  if (Object.prototype.hasOwnProperty.call(body, 'key')) {
+  if (Object.hasOwn(body, 'key')) {
     const key = body.key == null ? null : String(body.key || '').trim();
     attachment.key = key || null;
   }
@@ -412,6 +412,7 @@ export async function handlePublicDownloadAttachment(
   const secret = getSafeJwtSecret(env);
   if (!secret) return errorResponse('Server configuration error', 500);
 
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL(request.url);
   const token = url.searchParams.get('token');
 

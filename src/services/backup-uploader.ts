@@ -3,8 +3,8 @@ import {
   BackupDestinationType,
   S3BackupDestination,
   WebDavBackupDestination,
-  normalizeBackupEndpointUrl,
 } from './backup-config';
+import { normalizeBackupEndpointUrl } from '../utils/endpoint-policy';
 
 export interface BackupUploadResult {
   provider: BackupDestinationType;

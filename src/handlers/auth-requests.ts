@@ -3,7 +3,6 @@ import { StorageService } from '../services/storage';
 import { generateUUID } from '../utils/uuid';
 import { readAuthRequestDeviceInfo, readActingDeviceIdentifier } from '../utils/device';
 import { errorResponse, jsonResponse } from '../utils/response';
-import { isAuthRequestExpired } from '../services/storage-auth-request-repo';
 import { notifyAuthRequestResponse, notifyUserAuthRequest } from '../durable/notifications-hub';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
 import { LIMITS } from '../config/limits';
@@ -302,10 +301,11 @@ export async function handleGetAuthRequest(request: Request, env: Env, userId: s
 
 export async function handleGetAuthRequestResponse(request: Request, env: Env, id: string): Promise<Response> {
   const storage = new StorageService(env.DB);
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL(request.url);
   const accessCode = normalizeText(url.searchParams.get('code'), 25);
   const authRequest = await storage.getAuthRequestById(id);
-  if (!authRequest || authRequest.accessCode !== accessCode || isAuthRequestExpired(authRequest)) {
+  if (!authRequest || authRequest.accessCode !== accessCode || storage.isAuthRequestExpired(authRequest)) {
     return errorResponse('Not found', 404);
   }
   return jsonResponse(toAuthRequestResponse(request, authRequest));
@@ -334,7 +334,7 @@ export async function handleUpdateAuthRequest(request: Request, env: Env, userId
   if (!body) return errorResponse('Invalid request payload', 400);
 
   const authRequest = await storage.getAuthRequestByIdForUser(id, userId);
-  if (!authRequest || authRequest.userId !== userId || isAuthRequestExpired(authRequest)) {
+  if (!authRequest || authRequest.userId !== userId || storage.isAuthRequestExpired(authRequest)) {
     return errorResponse('Not found', 404);
   }
   if (authRequest.approved !== null || authRequest.responseDate || authRequest.authenticationDate) {

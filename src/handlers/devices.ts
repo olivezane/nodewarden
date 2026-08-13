@@ -1,5 +1,5 @@
 import type { Device, DevicePendingAuthRequest, DeviceResponse, ProtectedDeviceResponse as ProtectedDeviceWireResponse } from '../types';
-import { Env } from '../types';
+import type { Env } from '../types';
 import { getOnlineUserDevices, notifyUserLogout } from '../durable/notifications-hub';
 import { AuthService } from '../services/auth';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
@@ -99,15 +99,15 @@ function parseKeysBody(body: any, fallback?: Device): {
 } {
   return {
     encryptedUserKey:
-      Object.prototype.hasOwnProperty.call(body || {}, 'encryptedUserKey')
+      Object.hasOwn(body || {}, 'encryptedUserKey')
         ? body?.encryptedUserKey ?? null
         : fallback?.encryptedUserKey ?? null,
     encryptedPublicKey:
-      Object.prototype.hasOwnProperty.call(body || {}, 'encryptedPublicKey')
+      Object.hasOwn(body || {}, 'encryptedPublicKey')
         ? body?.encryptedPublicKey ?? null
         : fallback?.encryptedPublicKey ?? null,
     encryptedPrivateKey:
-      Object.prototype.hasOwnProperty.call(body || {}, 'encryptedPrivateKey')
+      Object.hasOwn(body || {}, 'encryptedPrivateKey')
         ? body?.encryptedPrivateKey ?? null
         : fallback?.encryptedPrivateKey ?? null,
   };
@@ -156,7 +156,7 @@ export async function handleRegisterDevice(request: Request, env: Env, userId: s
         type,
         pushUuid,
         pushToken,
-      });
+      }, storage);
     }
   }
 
@@ -414,7 +414,7 @@ export async function handleDeleteDevice(
   await storage.deleteRefreshTokensByDevice(userId, normalized);
   const deleted = await storage.deleteDevice(userId, normalized);
   if (deleted) {
-    await unregisterMobilePushDevice(env, device?.pushUuid);
+    await unregisterMobilePushDevice(env, device?.pushUuid, storage);
     AuthService.invalidateDeviceCache(userId, normalized);
     notifyUserLogout(env, userId, normalized);
   }
@@ -643,7 +643,7 @@ export async function handleDeactivateDevice(
   await storage.deleteRefreshTokensByDevice(userId, normalized);
   const deleted = await storage.deleteDevice(userId, normalized);
   if (deleted) {
-    await unregisterMobilePushDevice(env, device?.pushUuid);
+    await unregisterMobilePushDevice(env, device?.pushUuid, storage);
     AuthService.invalidateDeviceCache(userId, normalized);
     notifyUserLogout(env, userId, normalized);
   }
@@ -687,7 +687,7 @@ export async function handleUpdateDeviceToken(
       type: device.type,
       pushUuid,
       pushToken,
-    });
+    }, storage);
   }
 
   return new Response(null, { status: 200 });
@@ -721,7 +721,7 @@ export async function handleClearDeviceToken(
   const storage = new StorageService(env.DB);
   const cleared = await storage.clearDevicePushToken(userId, normalized);
   if (cleared?.pushUuid) {
-    await unregisterMobilePushDevice(env, cleared.pushUuid);
+    await unregisterMobilePushDevice(env, cleared.pushUuid, storage);
   }
 
   return new Response(null, { status: 200 });

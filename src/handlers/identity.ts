@@ -1,4 +1,4 @@
-import { Env, TokenResponse, User } from '../types';
+import type { Env, TokenResponse, User } from '../types';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
@@ -22,7 +22,6 @@ import {
   buildAccountPasskeyTokenUserDecryptionOption,
   buildTwoFactorPasskeyAssertionOptions,
 } from './account-passkeys';
-import { isAuthRequestExpired } from '../services/storage-auth-request-repo';
 import { createPasskeyUserVerificationToken } from '../utils/user-verification-token';
 import { constantTimeEquals, verifyApiKey } from '../utils/api-key';
 import { isYubiKeyEnabled, userYubiKeyPublicIds, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
@@ -117,7 +116,7 @@ async function persistIdentityDevicePushToken(
     type: device.type || deviceType,
     pushUuid,
     pushToken,
-  });
+  }, storage);
   console.info('Mobile push token updated from identity token request', {
     userId,
     deviceIdentifier: deviceSession.identifier,
@@ -163,6 +162,7 @@ async function loginRateLimitKey(clientIdentifier: string, grantType: string, su
 }
 
 function buildRefreshCookie(request: Request, refreshToken: string, maxAgeSeconds: number): string {
+  // pi-lens-ignore: unchecked-throwing-call
   const isHttps = new URL(request.url).protocol === 'https:';
   const parts = [
     `${WEB_REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}`,
@@ -426,7 +426,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         authRequest.approved === true &&
         authRequest.responseDate &&
         !authRequest.authenticationDate &&
-        !isAuthRequestExpired(authRequest) &&
+        !storage.isAuthRequestExpired(authRequest) &&
         !!authRequest.key &&
         constantTimeEquals(authRequest.accessCode, passwordHash)
       );

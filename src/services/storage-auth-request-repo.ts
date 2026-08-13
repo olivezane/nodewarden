@@ -1,6 +1,5 @@
 import type { AuthRequestRecord, AuthRequestType } from '../types';
-
-const AUTH_REQUEST_EXPIRATION_MS = 15 * 60 * 1000;
+import { AUTH_REQUEST_EXPIRATION_MS, isAuthRequestExpired } from './auth-request-policy';
 
 function mapAuthRequestRow(row: any): AuthRequestRecord {
   return {
@@ -22,10 +21,6 @@ function mapAuthRequestRow(row: any): AuthRequestRecord {
     responseDate: row.response_date ?? null,
     authenticationDate: row.authentication_date ?? null,
   };
-}
-
-export function isAuthRequestExpired(request: AuthRequestRecord, nowMs: number = Date.now()): boolean {
-  return new Date(request.creationDate).getTime() + AUTH_REQUEST_EXPIRATION_MS <= nowMs;
 }
 
 const AUTH_REQUEST_SELECT =

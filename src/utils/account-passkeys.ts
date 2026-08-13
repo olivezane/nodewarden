@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { base64UrlToBytes, bytesToBase64Url } from './passkey';
 import { getConfiguredWebAuthnAllowedOrigins } from './origins';
+import { signJwt, verifyJwt } from './jwt';
 
 const ACCOUNT_PASSKEY_TOKEN_TYPE = 'nodewarden.account-passkey.challenge.v1';
 const ACCOUNT_PASSKEY_TOKEN_TTL_MS = 17 * 60 * 1000;
@@ -71,27 +72,6 @@ function normalizeWebAuthnBase64(value: unknown): string {
   return String(value || '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-async function importHmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', textBytes(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-}
-
-async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
-  const key = await importHmacKey(secret);
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, textBytes(data)));
-}
-
-function encodeJson(value: unknown): string {
-  return bytesToBase64Url(textBytes(JSON.stringify(value)));
-}
-
-function decodeJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(new TextDecoder().decode(base64UrlToBytes(value))) as T;
-  } catch {
-    return null;
-  }
-}
-
 export async function sha256Base64Url(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', textBytes(value));
   return bytesToBase64Url(new Uint8Array(digest));
@@ -123,10 +103,7 @@ export async function createAccountPasskeyToken(
     iat: now,
     exp: now + (input.ttlMs ?? accountPasskeyTokenTtlMs(input.scope)),
   };
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const data = `${encodeJson(header)}.${encodeJson(payload)}`;
-  const signature = bytesToBase64Url(await hmacSha256(env.JWT_SECRET, data));
-  return `${data}.${signature}`;
+  return signJwt(payload, env.JWT_SECRET);
 }
 
 export async function verifyAccountPasskeyToken(
@@ -134,25 +111,12 @@ export async function verifyAccountPasskeyToken(
   token: string,
   scope: AccountPasskeyChallengeScope
 ): Promise<AccountPasskeyTokenPayload | null> {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 3) return null;
-    const data = `${parts[0]}.${parts[1]}`;
-    const expected = await hmacSha256(env.JWT_SECRET, data);
-    const actual = base64UrlToBytes(parts[2]);
-    if (actual.length !== expected.length) return null;
-    let diff = 0;
-    for (let i = 0; i < actual.length; i += 1) diff |= actual[i] ^ expected[i];
-    if (diff !== 0) return null;
-
-    const payload = decodeJson<AccountPasskeyTokenPayload>(parts[1]);
-    if (!payload || payload.typ !== ACCOUNT_PASSKEY_TOKEN_TYPE || payload.scope !== scope) return null;
-    if (!payload.challenge || !payload.rpId || !Number.isFinite(payload.exp)) return null;
-    if (payload.exp < Date.now()) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<AccountPasskeyTokenPayload>(token, env.JWT_SECRET, (payload) => {
+    if (!payload || payload.typ !== ACCOUNT_PASSKEY_TOKEN_TYPE || payload.scope !== scope) return false;
+    if (!payload.challenge || !payload.rpId || !Number.isFinite(payload.exp)) return false;
+    if (payload.exp < Date.now()) return false;
+    return true;
+  });
 }
 
 export function getAccountPasskeyRpConfig(request: Request, env: Env): { rpId: string; rpName: string; origins: string[] } {

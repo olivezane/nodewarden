@@ -1,7 +1,7 @@
-import { Env, SyncResponse, CipherResponse, FolderResponse, ProfileResponse } from '../types';
+import type { Env, SyncResponse, CipherResponse, FolderResponse, ProfileResponse } from '../types';
 import { StorageService } from '../services/storage';
 import { errorResponse } from '../utils/response';
-import { cipherToResponse, isCipherResponseSyncCompatible, shouldPreserveRepairableCipherUris } from './ciphers';
+import { cipherToResponse, isCipherResponseSyncCompatible, shouldPreserveRepairableCipherUris } from '../services/cipher-domain';
 import { sendToResponse } from './sends';
 import { LIMITS } from '../config/limits';
 import {
@@ -47,6 +47,7 @@ async function writeSyncCache(cacheRequest: Request, response: Response): Promis
 // GET /api/sync
 export async function handleSync(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL(request.url);
   const excludeDomainsParam = url.searchParams.get('excludeDomains');
   const excludeDomains = excludeDomainsParam !== null && /^(1|true|yes)$/i.test(excludeDomainsParam);

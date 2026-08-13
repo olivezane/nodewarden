@@ -1,11 +1,11 @@
-import { Env, Cipher, Folder, CipherType } from '../types';
+import type { Env, Cipher, Folder, CipherType } from '../types';
 import { notifyUserVaultSync } from '../durable/notifications-hub';
 import { StorageService } from '../services/storage';
 import { errorResponse, jsonResponse } from '../utils/response';
 import { readActingDeviceIdentifier } from '../utils/device';
 import { generateUUID } from '../utils/uuid';
 import { LIMITS } from '../config/limits';
-import { normalizeCipherLoginForStorage, normalizeCipherSshKeyForCompatibility, validateCipherEncryptedFieldsForCompatibility } from './ciphers';
+import { normalizeCipherLoginForStorage, normalizeCipherSshKeyForCompatibility, validateCipherEncryptedFieldsForCompatibility } from '../services/cipher-domain';
 
 // Bitwarden client import request format
 interface CiphersImportRequest {
@@ -88,7 +88,7 @@ function bindNull(v: any): any {
 function readAliasedImportProp<T = unknown>(source: any, aliases: string[]): T | undefined {
   if (!source || typeof source !== 'object') return undefined;
   for (const key of aliases) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
+    if (Object.hasOwn(source, key)) {
       return source[key] as T;
     }
   }
@@ -111,6 +111,7 @@ async function runBatchInChunks(db: D1Database, statements: D1PreparedStatement[
 // POST /api/ciphers/import - Bitwarden client import endpoint
 export async function handleCiphersImport(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL(request.url);
   const returnCipherMap = url.searchParams.get('returnCipherMap') === '1';
 

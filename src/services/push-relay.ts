@@ -1,7 +1,12 @@
 import type { Env } from '../types';
-import {
-  setConfigValue as saveConfigValue,
-} from './storage-config-repo';
+
+// Narrow config access: the only storage capability push-relay needs.
+// StorageService satisfies this structurally; persistence modules are not
+// reachable from here.
+export interface PushConfigAccessor {
+  getConfigValue(key: string): Promise<string | null>;
+  setConfigValue(key: string, value: string): Promise<void>;
+}
 
 const PUSH_RELAY_URI = 'https://push.bitwarden.com';
 const PUSH_IDENTITY_URI = 'https://identity.bitwarden.com';
@@ -37,23 +42,18 @@ function randomInstallationEmail(): string {
   return `${localPart}@nodewarden.app`;
 }
 
-async function getConfigKeyPresence(db: D1Database, key: string): Promise<string | null> {
-  const row = await db.prepare('SELECT value FROM config WHERE key = ? LIMIT 1').bind(key).first<{ value: string }>();
-  return typeof row?.value === 'string' ? row.value : null;
-}
-
-async function getPushInstallationCredentials(db: D1Database): Promise<{ id: string; key: string } | null> {
+async function getPushInstallationCredentials(config: PushConfigAccessor): Promise<{ id: string; key: string } | null> {
   const [id, key] = await Promise.all([
-    getConfigKeyPresence(db, PUSH_INSTALLATION_ID_KEY),
-    getConfigKeyPresence(db, PUSH_INSTALLATION_KEY_KEY),
+    config.getConfigValue(PUSH_INSTALLATION_ID_KEY),
+    config.getConfigValue(PUSH_INSTALLATION_KEY_KEY),
   ]);
   const normalizedId = String(id || '').trim();
   const normalizedKey = String(key || '').trim();
   return normalizedId && normalizedKey ? { id: normalizedId, key: normalizedKey } : null;
 }
 
-export async function ensurePushInstallationCredentials(db: D1Database): Promise<{ id: string; key: string } | null> {
-  const existing = await getPushInstallationCredentials(db);
+export async function ensurePushInstallationCredentials(config: PushConfigAccessor): Promise<{ id: string; key: string } | null> {
+  const existing = await getPushInstallationCredentials(config);
   if (existing) return existing;
 
   const response = await fetchPushEndpoint(
@@ -86,14 +86,14 @@ export async function ensurePushInstallationCredentials(db: D1Database): Promise
   }
 
   await Promise.all([
-    saveConfigValue(db, PUSH_INSTALLATION_ID_KEY, id),
-    saveConfigValue(db, PUSH_INSTALLATION_KEY_KEY, key),
+    config.setConfigValue(PUSH_INSTALLATION_ID_KEY, id),
+    config.setConfigValue(PUSH_INSTALLATION_KEY_KEY, key),
   ]);
   return { id, key };
 }
 
-async function getPushAccessToken(env: Env): Promise<string | null> {
-  const credentials = await ensurePushInstallationCredentials(env.DB);
+async function getPushAccessToken(env: Env, config: PushConfigAccessor): Promise<string | null> {
+  const credentials = await ensurePushInstallationCredentials(config);
   if (!credentials) return null;
 
   const now = Date.now();
@@ -142,8 +142,8 @@ async function getPushAccessToken(env: Env): Promise<string | null> {
   return token;
 }
 
-async function postToPushRelay(env: Env, path: string, body?: unknown): Promise<boolean> {
-  const token = await getPushAccessToken(env);
+async function postToPushRelay(env: Env, config: PushConfigAccessor, path: string, body?: unknown): Promise<boolean> {
+  const token = await getPushAccessToken(env, config);
   if (!token) return false;
 
   const response = await fetchPushEndpoint(
@@ -199,12 +199,13 @@ export async function registerMobilePushDevice(
     type: number;
     pushUuid: string;
     pushToken: string;
-  }
+  },
+  config: PushConfigAccessor
 ): Promise<boolean> {
-  const credentials = await ensurePushInstallationCredentials(env.DB);
+  const credentials = await ensurePushInstallationCredentials(config);
   if (!credentials) return false;
 
-  return postToPushRelay(env, '/push/register', {
+  return postToPushRelay(env, config, '/push/register', {
     deviceId: input.pushUuid,
     pushToken: input.pushToken,
     userId: input.userId,
@@ -214,10 +215,10 @@ export async function registerMobilePushDevice(
   });
 }
 
-export async function unregisterMobilePushDevice(env: Env, pushUuid: string | null | undefined): Promise<boolean> {
+export async function unregisterMobilePushDevice(env: Env, pushUuid: string | null | undefined, config: PushConfigAccessor): Promise<boolean> {
   const normalized = String(pushUuid || '').trim();
   if (!normalized) return false;
-  return postToPushRelay(env, '/push/delete', { id: normalized });
+  return postToPushRelay(env, config, '/push/delete', { id: normalized });
 }
 
 export async function notifyMobilePush(
@@ -228,7 +229,8 @@ export async function notifyMobilePush(
     revisionDate: string;
     contextId: string | null;
     payload: Record<string, unknown> | null | undefined;
-  }
+  },
+  config: PushConfigAccessor
 ): Promise<void> {
   const hasPushDevice = await env.DB
     .prepare('SELECT 1 FROM devices WHERE user_id = ? AND push_token IS NOT NULL AND push_token <> ? LIMIT 1')
@@ -245,7 +247,7 @@ export async function notifyMobilePush(
     actingPushUuid = row?.push_uuid ?? null;
   }
 
-  await postToPushRelay(env, '/push/send', {
+  await postToPushRelay(env, config, '/push/send', {
     userId: input.userId,
     organizationId: null,
     deviceId: actingPushUuid,

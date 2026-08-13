@@ -38,11 +38,57 @@ function getHmacKey(secret: string): Promise<CryptoKey> {
   return cached;
 }
 
+// Core: sign an arbitrary claims object as a three-part HMAC-SHA256 JWT.
+// Callers set iat/exp themselves (units are per-kind: seconds or milliseconds).
+export async function signJwt<T extends object>(payload: T, secret: string): Promise<string> {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encoder = new TextEncoder();
+
+  const data = `${base64UrlEncode(encoder.encode(JSON.stringify(header)))}.${base64UrlEncode(encoder.encode(JSON.stringify(payload)))}`;
+
+  const key = await getHmacKey(secret);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+
+  return `${data}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+// Core: verify the signature (single constant-time comparison via crypto.subtle.verify),
+// then run the per-kind claims validator (typ, claims, expiry).
+export async function verifyJwt<T extends object>(
+  token: string,
+  secret: string,
+  validate: (payload: T) => boolean
+): Promise<T | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const data = `${headerB64}.${payloadB64}`;
+
+    const key = await getHmacKey(secret);
+    const valid = await crypto.subtle.verify('HMAC', key, base64UrlDecode(signatureB64), new TextEncoder().encode(data));
+    if (!valid) return null;
+
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64))) as T;
+    if (!validate(payload)) return null;
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// Shared seconds-based expiry check. `undefined < now` is false, so a token
+// missing `exp` is treated as not expired — leniency preserved as before.
+function isExpiredSeconds(exp: unknown): boolean {
+  return (exp as number) < Math.floor(Date.now() / 1000);
+}
+
 // Create JWT
 export async function createJWT(payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss' | 'premium' | 'email_verified' | 'amr'>, secret: string, expiresIn: number = LIMITS.auth.accessTokenTtlSeconds): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
-  
+
   const fullPayload: JWTPayload = {
     ...payload,
     email_verified: true,  // required by mobile client
@@ -53,47 +99,12 @@ export async function createJWT(payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss' 
     premium: true,
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(fullPayload)));
-  
-  const data = `${headerB64}.${payloadB64}`;
-  
-  const key = await getHmacKey(secret);
-  
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  
-  return `${data}.${signatureB64}`;
+  return signJwt(fullPayload, secret);
 }
 
-// Verify JWT
+// Verify JWT (access token: checks expiry only, as today)
 export async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-    
-    const key = await getHmacKey(secret);
-    
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: JWTPayload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
-    
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<JWTPayload>(token, secret, (payload) => !isExpiredSeconds(payload.exp));
 }
 
 // Create refresh token (simple random string)
@@ -124,60 +135,22 @@ export async function createFileDownloadToken(
   attachmentId: string,
   secret: string
 ): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
-  
   const payload: FileDownloadClaims = {
     cipherId,
     attachmentId,
     jti: createRefreshToken(),
-    exp: now + LIMITS.auth.fileDownloadTokenTtlSeconds, // 5 minutes
+    exp: Math.floor(Date.now() / 1000) + LIMITS.auth.fileDownloadTokenTtlSeconds, // 5 minutes
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  
-  const data = `${headerB64}.${payloadB64}`;
-  
-  const key = await getHmacKey(secret);
-  
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  
-  return `${data}.${signatureB64}`;
+  return signJwt(payload, secret);
 }
 
-// Verify file download token
+// Verify file download token (checks expiry only, as today)
 export async function verifyFileDownloadToken(
   token: string,
   secret: string
 ): Promise<FileDownloadClaims | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-    
-    const key = await getHmacKey(secret);
-    
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: FileDownloadClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
-    
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<FileDownloadClaims>(token, secret, (payload) => !isExpiredSeconds(payload.exp));
 }
 
 export async function createAttachmentUploadToken(
@@ -186,53 +159,25 @@ export async function createAttachmentUploadToken(
   attachmentId: string,
   secret: string
 ): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
   const payload: AttachmentUploadClaims = {
     userId,
     cipherId,
     attachmentId,
-    exp: now + LIMITS.auth.fileDownloadTokenTtlSeconds,
+    exp: Math.floor(Date.now() / 1000) + LIMITS.auth.fileDownloadTokenTtlSeconds,
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const data = `${headerB64}.${payloadB64}`;
-
-  const key = await getHmacKey(secret);
-
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  return `${data}.${signatureB64}`;
+  return signJwt(payload, secret);
 }
 
 export async function verifyAttachmentUploadToken(
   token: string,
   secret: string
 ): Promise<AttachmentUploadClaims | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-
-    const key = await getHmacKey(secret);
-
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: AttachmentUploadClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-    if (!payload.userId || !payload.cipherId || !payload.attachmentId) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<AttachmentUploadClaims>(token, secret, (payload) => {
+    if (isExpiredSeconds(payload.exp)) return false;
+    if (!payload.userId || !payload.cipherId || !payload.attachmentId) return false;
+    return true;
+  });
 }
 
 export interface SendFileDownloadClaims {
@@ -254,46 +199,21 @@ export async function createSendFileDownloadToken(
   fileId: string,
   secret: string
 ): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
   const payload: SendFileDownloadClaims = {
     sendId,
     fileId,
     jti: createRefreshToken(),
-    exp: now + LIMITS.auth.fileDownloadTokenTtlSeconds,
+    exp: Math.floor(Date.now() / 1000) + LIMITS.auth.fileDownloadTokenTtlSeconds,
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const data = `${headerB64}.${payloadB64}`;
-
-  const key = await getHmacKey(secret);
-
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  return `${data}.${signatureB64}`;
+  return signJwt(payload, secret);
 }
 
 export async function verifySendFileDownloadToken(
   token: string,
   secret: string
 ): Promise<SendFileDownloadClaims | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-
-    const key = await getHmacKey(secret);
-
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: SendFileDownloadClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
+  return verifyJwt<SendFileDownloadClaims>(token, secret, (payload) => {
     if (
       typeof payload.sendId !== 'string' ||
       typeof payload.fileId !== 'string' ||
@@ -301,15 +221,11 @@ export async function verifySendFileDownloadToken(
       !payload.jti ||
       typeof payload.exp !== 'number'
     ) {
-      return null;
+      return false;
     }
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-
-    return payload;
-  } catch {
-    return null;
-  }
+    if (isExpiredSeconds(payload.exp)) return false;
+    return true;
+  });
 }
 
 export async function createSendFileUploadToken(
@@ -318,53 +234,25 @@ export async function createSendFileUploadToken(
   fileId: string,
   secret: string
 ): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
   const payload: SendFileUploadClaims = {
     userId,
     sendId,
     fileId,
-    exp: now + LIMITS.auth.fileDownloadTokenTtlSeconds,
+    exp: Math.floor(Date.now() / 1000) + LIMITS.auth.fileDownloadTokenTtlSeconds,
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const data = `${headerB64}.${payloadB64}`;
-
-  const key = await getHmacKey(secret);
-
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  return `${data}.${signatureB64}`;
+  return signJwt(payload, secret);
 }
 
 export async function verifySendFileUploadToken(
   token: string,
   secret: string
 ): Promise<SendFileUploadClaims | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-
-    const key = await getHmacKey(secret);
-
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: SendFileUploadClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-    if (!payload.userId || !payload.sendId || !payload.fileId) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<SendFileUploadClaims>(token, secret, (payload) => {
+    if (isExpiredSeconds(payload.exp)) return false;
+    if (!payload.userId || !payload.sendId || !payload.fileId) return false;
+    return true;
+  });
 }
 
 export interface SendAccessTokenClaims {
@@ -375,7 +263,6 @@ export interface SendAccessTokenClaims {
 }
 
 export async function createSendAccessToken(sendId: string, secret: string): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const payload: SendAccessTokenClaims = {
     sub: sendId,
@@ -384,39 +271,14 @@ export async function createSendAccessToken(sendId: string, secret: string): Pro
     exp: now + LIMITS.auth.sendAccessTokenTtlSeconds,
   };
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const data = `${headerB64}.${payloadB64}`;
-
-  const key = await getHmacKey(secret);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  return `${data}.${signatureB64}`;
+  return signJwt(payload, secret);
 }
 
 export async function verifySendAccessToken(token: string, secret: string): Promise<SendAccessTokenClaims | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerB64, payloadB64, signatureB64] = parts;
-    const encoder = new TextEncoder();
-
-    const key = await getHmacKey(secret);
-
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = base64UrlDecode(signatureB64);
-    const valid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
-    if (!valid) return null;
-
-    const payload: SendAccessTokenClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
-    if (payload.typ !== 'send_access') return null;
-    if (!payload.sub) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<SendAccessTokenClaims>(token, secret, (payload) => {
+    if (isExpiredSeconds(payload.exp)) return false;
+    if (payload.typ !== 'send_access') return false;
+    if (!payload.sub) return false;
+    return true;
+  });
 }

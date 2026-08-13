@@ -1,7 +1,8 @@
-import { User, Cipher, Folder, Attachment, Device, Invite, AuditLog, Send, TrustedDeviceTokenSummary, RefreshTokenRecord, CustomEquivalentDomain, AccountPasskeyChallenge, AccountPasskeyChallengeScope, AccountPasskeyCredential, AuthRequestRecord } from '../types';
+import type { User, Cipher, Folder, Attachment, Device, Invite, AuditLog, Send, TrustedDeviceTokenSummary, RefreshTokenRecord, CustomEquivalentDomain, AccountPasskeyChallenge, AccountPasskeyChallengeScope, AccountPasskeyCredential, AuthRequestRecord } from '../types';
 import { LIMITS } from '../config/limits';
 import { ensurePushInstallationCredentials } from './push-relay';
 import { ensureStorageSchema } from './storage-schema';
+import * as authRequestPolicy from './auth-request-policy';
 import {
   getConfigValue as getStoredConfigValue,
   isRegistered as getRegisteredFlag,
@@ -264,7 +265,7 @@ export class StorageService {
       await ensureStorageSchema(this.db);
       await saveConfigValue(this.db, STORAGE_SCHEMA_VERSION_KEY, STORAGE_SCHEMA_VERSION);
     }
-    await ensurePushInstallationCredentials(this.db);
+    await ensurePushInstallationCredentials(this);
 
     StorageService.schemaVerified = true;
   }
@@ -839,6 +840,10 @@ export class StorageService {
   }
 
   // --- Auth requests / Login with device ---
+
+  isAuthRequestExpired(request: AuthRequestRecord, nowMs: number = Date.now()): boolean {
+    return authRequestPolicy.isAuthRequestExpired(request, nowMs);
+  }
 
   async createAuthRequest(request: AuthRequestRecord): Promise<void> {
     await createStoredAuthRequest(this.db, request);

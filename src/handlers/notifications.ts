@@ -1,6 +1,5 @@
 import { AuthService } from '../services/auth';
 import { StorageService } from '../services/storage';
-import { isAuthRequestExpired } from '../services/storage-auth-request-repo';
 import type { Env, JWTPayload } from '../types';
 import { errorResponse, jsonResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
@@ -69,12 +68,13 @@ export async function handleAnonymousNotificationsHub(request: Request, env: Env
 
   const storage = new StorageService(env.DB);
   const authRequest = await storage.getAuthRequestById(authRequestId);
-  if (!authRequest || isAuthRequestExpired(authRequest)) {
+  if (!authRequest || storage.isAuthRequestExpired(authRequest)) {
     return errorResponse('Not found', 404);
   }
 
   const id = env.NOTIFICATIONS_HUB.idFromName(authRequestId);
   const stub = env.NOTIFICATIONS_HUB.get(id);
+  // pi-lens-ignore: unchecked-throwing-call
   const forwardedUrl = new URL(request.url);
   forwardedUrl.searchParams.set('nw_auth_request_id', authRequestId);
   return stub.fetch(new Request(forwardedUrl.toString(), request));

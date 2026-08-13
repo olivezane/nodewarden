@@ -1,5 +1,6 @@
 import { DurableObject, waitUntil } from 'cloudflare:workers';
 import type { Env } from '../types';
+import { StorageService } from '../services/storage';
 import { notifyMobilePush } from '../services/push-relay';
 
 const SIGNALR_RECORD_SEPARATOR = 0x1e;
@@ -205,6 +206,7 @@ export class NotificationsHub extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // pi-lens-ignore: unchecked-throwing-call
     const url = new URL(request.url);
 
     if (url.pathname === '/internal/notify' && request.method === 'POST') {
@@ -777,7 +779,7 @@ async function notifyUserUpdate(
         UserId: userId,
         Date: revisionDate,
       },
-    });
+    }, new StorageService(env.DB));
   } catch (error) {
     console.error('Failed to broadcast realtime notification:', error);
   }

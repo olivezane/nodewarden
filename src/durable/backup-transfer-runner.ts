@@ -18,7 +18,7 @@ import { notifyUserBackupProgress, notifyUserBackupRestoreProgress } from './not
 import {
   executeConfiguredBackup,
   importAndAuditRemoteBackupFile,
-} from '../handlers/backup';
+} from '../services/backup-runner';
 import { isSafeBackupAttachmentBlobName, verifyBackupArchiveFileNameChecksum } from '../services/backup-archive';
 import { zipSync } from 'fflate';
 

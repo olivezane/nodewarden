@@ -1,43 +1,21 @@
 import type { Env } from '../types';
-import { base64UrlToBytes, bytesToBase64Url } from './passkey';
+import { signJwt, verifyJwt } from './jwt';
 
 const USER_VERIFICATION_TOKEN_TYPE = 'nodewarden.user-verification.v1';
 const USER_VERIFICATION_TOKEN_TTL_MS = 5 * 60 * 1000;
+const TOTP_USER_VERIFICATION_TOKEN_TTL_MS = 10 * 60 * 1000;
 
-export type UserVerificationPurpose = 'backup.settings.repair';
+export type UserVerificationPurpose = 'backup.settings.repair' | 'totp.setup';
 
 interface UserVerificationTokenPayload {
   typ: typeof USER_VERIFICATION_TOKEN_TYPE;
   userId: string;
-  method: 'passkey';
+  method: 'passkey' | 'totp';
   purpose: UserVerificationPurpose;
+  key?: string;
+  stamp?: string;
   iat: number;
   exp: number;
-}
-
-function textBytes(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-async function importHmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', textBytes(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-}
-
-async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
-  const key = await importHmacKey(secret);
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, textBytes(data)));
-}
-
-function encodeJson(value: unknown): string {
-  return bytesToBase64Url(textBytes(JSON.stringify(value)));
-}
-
-function decodeJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(new TextDecoder().decode(base64UrlToBytes(value))) as T;
-  } catch {
-    return null;
-  }
 }
 
 export async function createPasskeyUserVerificationToken(
@@ -54,10 +32,7 @@ export async function createPasskeyUserVerificationToken(
     iat: now,
     exp: now + USER_VERIFICATION_TOKEN_TTL_MS,
   };
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const data = `${encodeJson(header)}.${encodeJson(payload)}`;
-  const signature = bytesToBase64Url(await hmacSha256(env.JWT_SECRET, data));
-  return `${data}.${signature}`;
+  return signJwt(payload, env.JWT_SECRET);
 }
 
 export async function verifyPasskeyUserVerificationToken(
@@ -66,24 +41,51 @@ export async function verifyPasskeyUserVerificationToken(
   userId: string,
   purpose: UserVerificationPurpose
 ): Promise<boolean> {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 3) return false;
-    const data = `${parts[0]}.${parts[1]}`;
-    const expected = await hmacSha256(env.JWT_SECRET, data);
-    const actual = base64UrlToBytes(parts[2]);
-    if (actual.length !== expected.length) return false;
-
-    let diff = 0;
-    for (let i = 0; i < actual.length; i += 1) diff |= actual[i] ^ expected[i];
-    if (diff !== 0) return false;
-
-    const payload = decodeJson<UserVerificationTokenPayload>(parts[1]);
+  const verified = await verifyJwt<UserVerificationTokenPayload>(token, env.JWT_SECRET, (payload) => {
     if (!payload || payload.typ !== USER_VERIFICATION_TOKEN_TYPE) return false;
     if (payload.userId !== userId || payload.purpose !== purpose || payload.method !== 'passkey') return false;
     if (!Number.isFinite(payload.exp) || payload.exp < Date.now()) return false;
     return true;
-  } catch {
-    return false;
-  }
+  });
+  return verified !== null;
+}
+
+// TOTP user-verification token. Binds the TOTP secret (key) and the user's
+// security stamp so a token minted for one secret/stamp cannot be replayed
+// against another. TTL stays at the historical 10 minutes.
+export async function createTotpUserVerificationToken(
+  env: Env,
+  userId: string,
+  key: string,
+  stamp: string
+): Promise<string> {
+  const now = Date.now();
+  const payload: UserVerificationTokenPayload = {
+    typ: USER_VERIFICATION_TOKEN_TYPE,
+    userId,
+    method: 'totp',
+    purpose: 'totp.setup',
+    key,
+    stamp,
+    iat: now,
+    exp: now + TOTP_USER_VERIFICATION_TOKEN_TTL_MS,
+  };
+  return signJwt(payload, env.JWT_SECRET);
+}
+
+export async function verifyTotpUserVerificationToken(
+  env: Env,
+  token: string,
+  userId: string,
+  key: string,
+  stamp: string
+): Promise<boolean> {
+  const verified = await verifyJwt<UserVerificationTokenPayload>(token, env.JWT_SECRET, (payload) => {
+    if (!payload || payload.typ !== USER_VERIFICATION_TOKEN_TYPE) return false;
+    if (payload.userId !== userId || payload.purpose !== 'totp.setup' || payload.method !== 'totp') return false;
+    if (payload.key !== key || payload.stamp !== stamp) return false;
+    if (!Number.isFinite(payload.exp) || payload.exp < Date.now()) return false;
+    return true;
+  });
+  return verified !== null;
 }
