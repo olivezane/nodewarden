@@ -64,3 +64,9 @@ security-audits/
 .mcp.json
 opencode.jsonc
 .cursor/
+
+# AI-generated local files (issue tracker, agent docs, tool state) — local only
+.scratch/
+CLAUDE.md
+.remember/
+/.pi-subagents
