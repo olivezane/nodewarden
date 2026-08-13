@@ -1,3 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../../tailwind.config.js';
+
+/* v4 dark-mode variant: class or data-theme attribute, matching the v3
+   darkMode: ['class', '[data-theme="dark"]'] behavior. */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme='dark'], [data-theme='dark'] *));

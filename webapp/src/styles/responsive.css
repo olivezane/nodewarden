@@ -1,3 +1,5 @@
+@reference './tailwind.css';
+
 @media (max-width: 1180px) {
   .app-page {
     @apply p-2;
