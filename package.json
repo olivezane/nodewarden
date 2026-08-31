@@ -28,7 +28,12 @@
     "deploy:kv": "node scripts/ensure-kv.cjs && wrangler deploy -c wrangler.kv.toml",
     "deploy:demo": "npm run build:demo && wrangler pages deploy dist --project-name nw-demo",
     "test:cipher-domain": "tsx --test scripts/cipher-domain.test.ts",
-    "test:auth-request-policy": "tsx --test scripts/auth-request-policy.test.ts"
+    "test:auth-request-policy": "tsx --test scripts/auth-request-policy.test.ts",
+    "test:schema-parity": "tsx --test scripts/schema-parity.test.ts",
+    "test:wrangler-parity": "tsx --test scripts/wrangler-config-parity.test.ts",
+    "test:blob-store-kv": "tsx --test scripts/blob-store-kv.test.ts",
+    "d1:migrate": "wrangler d1 migrations apply nodewarden-db -c wrangler.toml",
+    "d1:migrate:kv": "wrangler d1 migrations apply nodewarden-db -c wrangler.kv.toml"
   },
   "keywords": [
     "bitwarden",

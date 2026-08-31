@@ -1,6 +1,6 @@
 name = "nodewarden"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-08-01"
 
 [build]
 command = "npm run build"
@@ -18,6 +18,7 @@ crons = [ "*/5 * * * *" ]
 [[d1_databases]]
 binding = "DB"
 database_name = "nodewarden-db"
+migrations_dir = "./migrations"
 
 [[durable_objects.bindings]]
 name = "NOTIFICATIONS_HUB"
@@ -37,3 +38,17 @@ new_sqlite_classes = [ "NotificationsHub" ]
 [[migrations]]
 tag = "v2-backup-transfer-runner"
 new_sqlite_classes = [ "BackupTransferRunner" ]
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1

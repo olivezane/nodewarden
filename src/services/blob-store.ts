@@ -95,15 +95,15 @@ export async function getBlobObject(env: Env, key: string): Promise<BlobObject |
   }
 
   if (hasKvStorage(env)) {
-    const result = await env.ATTACHMENTS_KV.getWithMetadata<KVBlobMetadata>(key, 'arrayBuffer');
+    const result = await env.ATTACHMENTS_KV.getWithMetadata<KVBlobMetadata>(key, 'stream');
     if (!result.value) return null;
 
-    const sizeFromMeta = Number(result.metadata?.size || 0);
-    const size = sizeFromMeta > 0 ? sizeFromMeta : result.value.byteLength;
-    const body = new Response(result.value).body;
+    // putBlobObject always stores size/contentType metadata; the stream
+    // itself has no byteLength so the value is never buffered in memory.
+    const size = Number(result.metadata?.size || 0);
 
     return {
-      body,
+      body: result.value,
       size,
       contentType: result.metadata?.contentType || DEFAULT_CONTENT_TYPE,
     };
