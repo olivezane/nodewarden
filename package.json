@@ -20,6 +20,7 @@
     "test:backup-runner": "tsx --test scripts/backup-runner.test.ts",
     "test:endpoint-policy": "tsx --test scripts/endpoint-policy.test.ts",
     "test:token-security": "tsx --test scripts/token-security.test.ts",
+    "test:notifications-security": "tsx --test scripts/notifications-security.test.ts",
     "test:webauthn-mobile": "node --test scripts/webauthn-mobile-connector.test.mjs",
     "test:webauthn-connector": "node --test scripts/webauthn-connector.test.mjs && tsx --test scripts/webauthn-connector-headers.test.ts",
     "test:webauthn-connectors": "node --test scripts/webauthn-mobile-connector.test.mjs scripts/webauthn-connector.test.mjs && tsx --test scripts/webauthn-connector-headers.test.ts",
