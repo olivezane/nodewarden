@@ -28,11 +28,10 @@ test('wrangler.toml and wrangler.kv.toml differ only in storage binding', () => 
 test('shared config enables observability and D1 migrations', () => {
   for (const file of ['../wrangler.toml', '../wrangler.kv.toml']) {
     const src = readFileSync(new URL(file, import.meta.url), 'utf8');
-    const context = file;
-    assert.ok(!/^\s*enabled\s*=\s*false/m.test(src), `${context}: no contradicting enabled=false`);
-    assert.ok(/^\[observability\]\s*$/m.test(src), `${context}: [observability] missing`);
-    assert.ok(/^\[observability\.logs\]\s*$/m.test(src), `${context}: [observability.logs] missing`);
-    assert.ok(/^\[observability\.traces\]\s*$/m.test(src), `${context}: [observability.traces] missing`);
-    assert.ok(/migrations_dir\s*=/m.test(src), `${context}: D1 migrations_dir missing`);
+    assert.ok(!/^\s*enabled\s*=\s*false/m.test(src), `${file}: no contradicting enabled=false`);
+    assert.ok(/^\[observability\]\s*$/m.test(src), `${file}: [observability] missing`);
+    assert.ok(/^\[observability\.logs\]\s*$/m.test(src), `${file}: [observability.logs] missing`);
+    assert.ok(/^\[observability\.traces\]\s*$/m.test(src), `${file}: [observability.traces] missing`);
+    assert.ok(/migrations_dir\s*=/m.test(src), `${file}: D1 migrations_dir missing`);
   }
 });

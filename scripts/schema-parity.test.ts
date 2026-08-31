@@ -40,7 +40,7 @@ function tableNames(db: DatabaseSync): string[] {
 }
 
 function columnsOf(db: DatabaseSync, table: string): string[] {
-  const rows = db.prepare(`PRAGMA table_info(${JSON.stringify(table).slice(1, -1)})`).all() as Array<{
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
     name: string;
   }>;
   return rows.map((r) => r.name);
@@ -48,21 +48,21 @@ function columnsOf(db: DatabaseSync, table: string): string[] {
 
 function indexesOf(db: DatabaseSync, table: string): Record<string, { unique: number; columns: string[] }> {
   const result: Record<string, { unique: number; columns: string[] }> = {};
-  const list = db.prepare(`PRAGMA index_list(${JSON.stringify(table).slice(1, -1)})`).all() as Array<{
+  const list = db.prepare(`PRAGMA index_list(${table})`).all() as Array<{
     name: string;
     unique: number;
     origin: string;
   }>;
   for (const index of list) {
     if (index.origin === 'pk') continue;
-    const cols = db.prepare(`PRAGMA index_info(${JSON.stringify(index.name)})`).all() as Array<{ name: string }>;
+    const cols = db.prepare(`PRAGMA index_info(${index.name})`).all() as Array<{ name: string }>;
     result[index.name] = { unique: index.unique, columns: cols.map((c) => c.name) };
   }
   return result;
 }
 
 function foreignKeysOf(db: DatabaseSync, table: string): string[] {
-  const rows = db.prepare(`PRAGMA foreign_key_list(${JSON.stringify(table).slice(1, -1)})`).all() as Array<{
+  const rows = db.prepare(`PRAGMA foreign_key_list(${table})`).all() as Array<{
     table: string;
     from: string;
     to: string;
