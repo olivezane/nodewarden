@@ -258,7 +258,7 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
 
   const now = new Date().toISOString();
   const auth = new AuthService(env);
-  const serverHash = await auth.hashPasswordServer(masterPasswordHash, email);
+  const serverHash = await auth.hashPasswordServer(masterPasswordHash);
 
   const user: User = {
     id: generateUUID(),
@@ -706,7 +706,7 @@ export async function handleChangePassword(request: Request, env: Env, userId: s
     return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
   }
 
-  user.masterPasswordHash = await auth.hashPasswordServer(newMasterPasswordHash, user.email);
+  user.masterPasswordHash = await auth.hashPasswordServer(newMasterPasswordHash);
   user.key = nextKey;
   if (nextPrivateKey) user.privateKey = nextPrivateKey;
   if (nextPublicKey) user.publicKey = nextPublicKey;

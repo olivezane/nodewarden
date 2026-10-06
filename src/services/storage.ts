@@ -18,6 +18,7 @@ import {
   getUserById as findStoredUserById,
   getUserCount as countStoredUsers,
   saveUser as saveStoredUser,
+  upgradePasswordVerifier as upgradeStoredPasswordVerifier,
 } from './storage-user-repo';
 import {
   type AuditLogListOptions,
@@ -59,6 +60,7 @@ import {
   getCiphersByIds as listStoredCiphersByIds,
   getCiphersPage as listStoredCiphersPage,
   saveCipher as saveStoredCipher,
+  updateCipherIfUnchanged as updateStoredCipherIfUnchanged,
   deleteCipher as deleteStoredCipher,
 } from './storage-cipher-repo';
 import {
@@ -314,6 +316,10 @@ export class StorageService {
     await createStoredUser(this.db, this.safeBind.bind(this), user);
   }
 
+  async upgradePasswordVerifier(userId: string, expectedVerifier: string, securityStamp: string, newVerifier: string): Promise<boolean> {
+    return upgradeStoredPasswordVerifier(this.db, userId, expectedVerifier, securityStamp, newVerifier);
+  }
+
   async createFirstUser(user: User): Promise<boolean> {
     return createFirstStoredUser(this.db, this.safeBind.bind(this), user);
   }
@@ -490,6 +496,10 @@ export class StorageService {
 
   async saveCipher(cipher: Cipher): Promise<void> {
     await saveStoredCipher(this.db, this.safeBind.bind(this), cipher);
+  }
+
+  async updateCipherIfUnchanged(cipher: Cipher, expectedUpdatedAt: string): Promise<boolean> {
+    return updateStoredCipherIfUnchanged(this.db, this.safeBind.bind(this), cipher, expectedUpdatedAt);
   }
 
   async deleteCipher(id: string, userId: string): Promise<void> {
