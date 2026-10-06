@@ -3,7 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { StorageService } from '../src/services/storage';
 import { handleAuthenticatedRoute } from '../src/router-authenticated';
-import { cipherToResponse } from '../src/handlers/ciphers';
+import { cipherToResponse } from '../src/services/cipher-domain';
 import { bytesToBase64, encryptBw, decryptStr } from '../webapp/src/lib/crypto';
 import { decryptSingleCipher } from '../webapp/src/lib/decrypt-cipher';
 import { updateCipher, buildCipherImportPayload, repairCipherKeyMismatches } from '../webapp/src/lib/api/vault';

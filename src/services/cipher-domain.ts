@@ -364,6 +364,7 @@ function normalizeCipherSecureNoteForCompatibility(secureNote: any): CipherSecur
   if (!secureNote || typeof secureNote !== 'object') return null;
   const type = Number(secureNote?.type ?? secureNote?.Type ?? 0);
   return {
+    ...secureNote,
     type: Number.isFinite(type) ? type : 0,
   };
 }
