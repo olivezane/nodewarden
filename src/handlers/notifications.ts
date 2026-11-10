@@ -1,4 +1,6 @@
+import { LIMITS } from '../config/limits';
 import { AuthService } from '../services/auth';
+import { RateLimitService } from '../services/ratelimit';
 import { StorageService } from '../services/storage';
 import { isAuthRequestExpired } from '../services/storage-auth-request-repo';
 import type { Env, JWTPayload } from '../types';
@@ -81,9 +83,34 @@ async function authenticateNotificationsHub(request: Request, env: Env): Promise
   return consumeWebSocketConnectionToken(request, env);
 }
 
+async function consumeNotificationsBudget(env: Env, userId: string): Promise<Response | null> {
+  const rateLimit = new RateLimitService(env.DB);
+  const check = await rateLimit.consumeBudget(
+    `${userId}:notifications`,
+    LIMITS.rateLimit.notificationsRequestsPerMinute
+  );
+  if (check.allowed) return null;
+  return new Response(
+    JSON.stringify({
+      error: 'Too many requests',
+      error_description: `Rate limit exceeded. Try again in ${check.retryAfterSeconds} seconds.`,
+    }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Retry-After': String(check.retryAfterSeconds || 60),
+      },
+    }
+  );
+}
+
 export async function handleNotificationsNegotiate(request: Request, env: Env): Promise<Response> {
   const payload = await authenticateAccessToken(request, env);
   if (!payload?.sub) return errorResponse('Unauthorized', 401);
+
+  const limited = await consumeNotificationsBudget(env, payload.sub);
+  if (limited) return limited;
 
   const connectionToken = await issueWebSocketConnectionToken(payload, env);
   return jsonResponse(
@@ -109,6 +136,9 @@ export async function handleNotificationsHub(request: Request, env: Env): Promis
   }
   const payload = await authenticateNotificationsHub(request, env);
   if (!payload?.sub) return errorResponse('Unauthorized', 401);
+
+  const limited = await consumeNotificationsBudget(env, payload.sub);
+  if (limited) return limited;
 
   const userId = payload.sub;
   const id = env.NOTIFICATIONS_HUB.idFromName(userId);

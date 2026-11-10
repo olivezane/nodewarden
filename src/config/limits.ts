@@ -40,6 +40,12 @@
     // Authenticated API request budget per user per minute (all reads & writes combined).
     // 认证 API 每用户每分钟请求配额（读写合计）。
     apiRequestsPerMinute: 200,
+    // Bounded budget for the client-flagged bulk import path (one attachment per request).
+    // 批量导入路径的每用户每分钟请求配额（导入时每个附件一次请求）。
+    importRequestsPerMinute: 1200,
+    // Notifications negotiate/upgrade budget per user per minute (each negotiate writes a hub ticket).
+    // 每用户每分钟通知协商/升级请求配额（每次协商都会写入一条 hub 票据）。
+    notificationsRequestsPerMinute: 60,
     // Public (unauthenticated) request budget per IP per minute.
     // 公开（未认证）接口每 IP 每分钟请求配额。
     publicRequestsPerMinute: 60,

@@ -45,8 +45,9 @@ export interface RemoteBackupFilePutOptions {
   contentType?: string;
 }
 
-function isBackupArchiveName(name: string): boolean {
-  return /\.zip$/i.test(String(name || '').trim());
+export function isBackupArchiveName(name: string): boolean {
+  // Only prune this app's own archives: the destination root may hold other backups.
+  return /^nodewarden_backup_\d{8}_\d{6}(?:_[0-9a-f]{5})?\.zip$/i.test(String(name || '').trim());
 }
 
 function encodePathSegments(path: string): string {

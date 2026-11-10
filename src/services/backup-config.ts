@@ -212,8 +212,8 @@ export function normalizeBackupEndpointUrl(value: string, label: string): string
   } catch {
     throw new Error(`${label} must be a valid URL`);
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`${label} must start with http:// or https://`);
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`${label} must start with https://`);
   }
   if (parsed.username || parsed.password) {
     throw new Error(`${label} must not include credentials`);

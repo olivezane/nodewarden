@@ -2,8 +2,25 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { handleNotificationsHub, handleNotificationsNegotiate } from '../src/handlers/notifications';
+import { LIMITS } from '../src/config/limits';
 import type { Env } from '../src/types';
 import { createJWT } from '../src/utils/jwt';
+
+// The per-user notification budget is Cache API backed; emulate it outside Workers.
+const rateLimitCache = new Map<string, string>();
+(globalThis as unknown as { caches: unknown }).caches = {
+  async open() {
+    return {
+      async match(key: Request) {
+        const value = rateLimitCache.get(key.url);
+        return value === undefined ? undefined : new Response(value);
+      },
+      async put(key: Request, response: Response) {
+        rateLimitCache.set(key.url, await response.text());
+      },
+    };
+  },
+};
 
 const secret = 'notification-security-test-secret-32-bytes';
 const userId = 'd75020e1-2de4-46e8-b8f1-475d127b51f2';
@@ -154,6 +171,30 @@ test('negotiate issues a short-lived one-time websocket connection token', async
   assert.equal((await handleNotificationsHub(request(), env)).status, 204);
   assert.equal((await handleNotificationsHub(request(), env)).status, 401);
   assert.equal(forwardedHubUrls.length, 1);
+});
+
+test('negotiate is bounded per user instead of minting unlimited hub tickets', async () => {
+  const { env, connectionTokens } = createTestEnv();
+  const token = await createJWT({
+    sub: 'bounded-user',
+    email: 'bounded@example.test',
+    name: 'Bounded User',
+    sstamp: securityStamp,
+  }, secret);
+  const negotiate = () => handleNotificationsNegotiate(new Request(
+    'https://vault.example.test/notifications/hub/negotiate',
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+  ), env);
+
+  for (let i = 0; i < LIMITS.rateLimit.notificationsRequestsPerMinute; i++) {
+    assert.equal((await negotiate()).status, 200);
+  }
+  assert.equal(connectionTokens.size, LIMITS.rateLimit.notificationsRequestsPerMinute);
+
+  const blocked = await negotiate();
+  assert.equal(blocked.status, 429);
+  assert.ok(Number(blocked.headers.get('Retry-After')) > 0);
+  assert.equal(connectionTokens.size, LIMITS.rateLimit.notificationsRequestsPerMinute);
 });
 
 test('a non-upgrade request does not consume a websocket connection token', async () => {

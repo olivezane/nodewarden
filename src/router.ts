@@ -25,7 +25,7 @@ function canServeWithUnsafeJwtSecret(path: string, method: string): boolean {
   return false;
 }
 
-function isImportBypassRequest(request: Request, path: string, method: string): boolean {
+function isBulkImportRequest(request: Request, path: string, method: string): boolean {
   if (request.headers.get('X-NodeWarden-Import') !== '1') return false;
 
   if (method === 'POST') {
@@ -56,49 +56,18 @@ async function enforceRequestBodyLimit(
     return request;
   }
 
+  // Never buffer an unbounded body before routing: unauthenticated callers could force
+  // allocations ahead of auth and the IP budget. Unframed (chunked) bodies are refused.
   const contentLengthRaw = request.headers.get('Content-Length');
-  if (contentLengthRaw) {
-    const contentLength = Number(contentLengthRaw);
-    if (Number.isFinite(contentLength) && contentLength > LIMITS.request.maxBodyBytes) {
-      return errorResponse('Request body too large', 413);
-    }
-    if (Number.isFinite(contentLength) && contentLength >= 0) {
-      return request;
-    }
+  const contentLength = contentLengthRaw === null ? NaN : Number(contentLengthRaw);
+  if (!Number.isFinite(contentLength) || contentLength < 0) {
+    return errorResponse('Content-Length required', 411);
+  }
+  if (contentLength > LIMITS.request.maxBodyBytes) {
+    return errorResponse('Request body too large', 413);
   }
 
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > LIMITS.request.maxBodyBytes) {
-      try {
-        await reader.cancel();
-      } catch {
-        // Ignore cancellation races after the oversized body is rejected.
-      }
-      return errorResponse('Request body too large', 413);
-    }
-    chunks.push(value);
-  }
-
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return new Request(request.url, {
-    method: request.method,
-    headers: request.headers,
-    body,
-    redirect: request.redirect,
-  });
+  return request;
 }
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -186,25 +155,29 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return errorResponse('Account is disabled', 403);
     }
 
-    if (!isImportBypassRequest(request, path, method)) {
-      const rateLimit = new RateLimitService(env.DB);
-      const rateLimitCheck = await rateLimit.consumeBudget(`${userId}:api`, LIMITS.rateLimit.apiRequestsPerMinute);
-      if (!rateLimitCheck.allowed) {
-        return new Response(
-          JSON.stringify({
-            error: 'Too many requests',
-            error_description: `Rate limit exceeded. Try again in ${rateLimitCheck.retryAfterSeconds} seconds.`,
-          }),
-          {
-            status: 429,
-            headers: {
-              'Content-Type': 'application/json',
-              'Retry-After': String(rateLimitCheck.retryAfterSeconds || 60),
-              'X-RateLimit-Remaining': '0',
-            },
-          }
-        );
-      }
+    // shortcut: the client-asserted import header only selects a larger bounded bucket; mint a
+    // server-side import grant instead if bulk import ever needs a bigger allowance.
+    const isImport = isBulkImportRequest(request, path, method);
+    const rateLimit = new RateLimitService(env.DB);
+    const rateLimitCheck = await rateLimit.consumeBudget(
+      `${userId}:${isImport ? 'import' : 'api'}`,
+      isImport ? LIMITS.rateLimit.importRequestsPerMinute : LIMITS.rateLimit.apiRequestsPerMinute
+    );
+    if (!rateLimitCheck.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Too many requests',
+          error_description: `Rate limit exceeded. Try again in ${rateLimitCheck.retryAfterSeconds} seconds.`,
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(rateLimitCheck.retryAfterSeconds || 60),
+            'X-RateLimit-Remaining': '0',
+          },
+        }
+      );
     }
 
     const authenticatedResponse = await handleAuthenticatedRoute(request, env, userId, currentUser, path, method);
